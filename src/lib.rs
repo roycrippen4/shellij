@@ -1,8 +1,7 @@
 use ansi_term::Color;
 use anyhow::{Result, anyhow};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use indoc::{eprintdoc, formatdoc};
-use openssh::{KnownHosts, Session};
 use regex::Regex;
 
 use crossterm::event::{Event, KeyCode, poll, read};
@@ -16,15 +15,49 @@ use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-#[derive(Parser, Debug)]
-#[command(version)]
-#[command(about = "Helps you SSH directly into Zellij")]
-pub struct Args {
+#[derive(Debug, Parser)]
+#[command(name = "shellij")]
+#[command(about = "Helps you SSH directly into Zellij", long_about = None, version)]
+pub struct Cli {
     #[arg(index = 1, required = true)]
     pub ssh_addr: String,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
-impl Args {
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Lists Zellij sessions over SSH
+    List,
+
+    /// Create and attach to a new Zellij session over SSH
+    #[command(arg_required_else_help = true)]
+    Create {
+        /// Name of the new session
+        session_name: String,
+    },
+
+    /// Delete a Zellij session over SSH
+    #[command(arg_required_else_help = true)]
+    Delete {
+        /// Name of the session to delete
+        #[arg(value_name = "SESSION NAME")]
+        session_name: String,
+
+        /// Force delete a session
+        #[arg(
+            long,
+            short,
+            action = clap::ArgAction::SetTrue,
+            required = false,
+            help ="Forces Zellij to delete a session. Required if the session is active."
+        )]
+        force: bool,
+    },
+}
+
+impl Cli {
     pub fn validate(self) -> Result<Self> {
         if !self.args_are_valid() || !Self::env_is_valid() {
             return Err(anyhow!("Goodbye!"));
@@ -42,56 +75,52 @@ impl Args {
         let at = Color::Red.paint("@");
         let i = Color::Red.paint("<ip>");
         let addr = Color::White.bold().paint(self.ssh_addr.clone());
-        let usage = formatdoc! {"
-    {usage_lbl}: {exe} <SSH_ADDR>
 
-    For more information, try '{help}'"
-        };
+        let usage = formatdoc! {"
+        {usage_lbl}: {exe} <SSH_ADDR>
+
+        For more information, try '{help}'
+        "};
 
         let Some((user, ip)) = self.ssh_addr.split_once("@") else {
             eprintdoc! {"
-        {error} Malformed ssh address '{addr}':
-          <user>{at}<ip>
-                ^ separator not found
+            {error} Malformed ssh address '{addr}':
+              <user>{at}<ip>
+                    ^ separator not found
 
-        {usage}
-        "};
+            {usage}"};
             return false;
         };
 
         if user.is_empty() {
             eprintdoc! {"
-        {error} Malformed ssh address '{addr}':
-          {usr}@<ip>
-           ^^^^ user not found
+            {error} Malformed ssh address '{addr}':
+              {usr}@<ip>
+               ^^^^ user not found
 
-        {usage}
-        "};
+            {usage}"};
 
             return false;
         }
 
         if ip.is_empty() {
             eprintdoc! {"
-        {error} Malformed ssh address '{addr}':
-          <user>@{i}
-                  ^^ ip not found
+            {error} Malformed ssh address '{addr}':
+              <user>@{i}
+                      ^^ ip not found
 
-        {usage}
-        "};
+            {usage}"};
 
             return false;
         }
 
         if !is_ip(ip) {
             eprintdoc! {"
-        {error} Malformed ssh address '{addr}':
-          <user>@{i}
-                  ^^ invalid ip address
+            {error} Malformed ssh address '{addr}':
+              <user>@{i}
+                      ^^ invalid ip address
 
-        {usage}
-        "};
-
+            {usage}"};
             return false;
         }
 
@@ -181,9 +210,56 @@ fn fzf(zs: Vec<Zesh>, zs_raw: String) -> Result<Zesh> {
     Ok(zs[choice_idx].clone())
 }
 
+pub fn shellij_create(ssh_addr: &str, session_name: &str) -> Result<()> {
+    Command::new("ssh")
+        .arg("-t")
+        .arg(ssh_addr)
+        .arg(format!("zellij -s {session_name}"))
+        .status()?;
+
+    Ok(())
+}
+
+pub fn shellij_delete(ssh_addr: &str, session_name: &str, force: bool) -> Result<()> {
+    let zellij_cmd = if force {
+        format!("zellij delete-session {session_name}")
+    } else {
+        format!("zellij delete-session {session_name} --force")
+    };
+
+    Command::new("ssh")
+        .arg(ssh_addr)
+        .arg(&zellij_cmd)
+        .status()?;
+
+    Ok(())
+}
+
+pub fn shellij_list(ssh_addr: &str) -> Result<()> {
+    let (_, stdout) = zellij_list_sessions(ssh_addr)?;
+
+    if stdout.is_empty() {
+        println!("No Zellij sessions found.");
+        return Ok(());
+    }
+
+    println!("\nSessions Found:");
+    println!("{stdout}");
+
+    Ok(())
+}
+
 /// Attaches to a remote zellij session over ssh
-pub async fn shellij(ssh_addr: &str) -> Result<()> {
-    let (zs, zs_raw) = zellij_list_sessions(ssh_addr).await?;
+pub fn shellij(ssh_addr: &str) -> Result<()> {
+    let (zs, stdout) = zellij_list_sessions(ssh_addr)?;
+
+    let zs_raw = stdout
+        .lines()
+        .enumerate()
+        .fold(String::new(), |mut output, (i, l)| {
+            let _ = writeln!(output, "{i} {}", l);
+            output
+        });
 
     if zs.is_empty() {
         println!("No active sessions found");
@@ -225,28 +301,26 @@ pub async fn shellij(ssh_addr: &str) -> Result<()> {
 }
 
 /// Gets the list of zellij sessions from remote over ssh
-async fn zellij_list_sessions(ssh_addr: &str) -> Result<(Vec<Zesh>, String)> {
-    println!("Attempting to contact remote...");
-    let ssh = Session::connect(ssh_addr, KnownHosts::Strict).await?;
-    println!("Connection established");
+fn zellij_list_sessions(ssh_addr: &str) -> Result<(Vec<Zesh>, String)> {
+    // println!("Attempting to contact remote...");
+    // let ssh = Session::connect(ssh_addr, KnownHosts::Strict).await?;
+    // println!("Connection established");
+    //
+    // println!("Checking for zellij executable on remote PATH...");
+    // let output = ssh.command("which").arg("zellij").output().await?;
+    // if output.stdout.is_empty() {
+    //     let err = "Remote does not have Zellij in PATH. Aborting.";
+    //     eprintln!("{err}");
+    //     return Err(anyhow!(err));
+    // }
 
-    println!("Checking for zellij executable on remote PATH...");
-    let output = ssh.command("which").arg("zellij").output().await?;
-    if output.stdout.is_empty() {
-        let err = "Remote does not have Zellij in PATH. Aborting.";
-        eprintln!("{err}");
-        return Err(anyhow!(err));
-    }
+    let zellij_out = Command::new("ssh")
+        .arg(ssh_addr)
+        .arg("zellij ls -n")
+        .output()?;
 
-    let zellij_out = ssh
-        .command("zellij")
-        .arg("ls")
-        .arg("-n") // no ansi escapes
-        .output()
-        .await?;
     let stdout = String::from_utf8(zellij_out.stdout)?;
     let stderr = String::from_utf8(zellij_out.stderr)?;
-    println!("{stderr}");
 
     if stderr.contains("No active zellij sessions found.") {
         return Ok((vec![], stdout));
@@ -260,16 +334,8 @@ async fn zellij_list_sessions(ssh_addr: &str) -> Result<(Vec<Zesh>, String)> {
 
     let zs = stdout.trim().split('\n').flat_map(Zesh::try_from).collect();
 
-    let zs_raw = stdout
-        .lines()
-        .enumerate()
-        .fold(String::new(), |mut output, (i, l)| {
-            let _ = writeln!(output, "{i} {}", l);
-            output
-        });
-
-    ssh.close().await?;
-    Ok((zs, zs_raw))
+    // ssh.close().await?;
+    Ok((zs, stdout.trim().to_string()))
 }
 
 #[derive(Debug, Clone)]
