@@ -9,4 +9,3 @@ anyhow = "1.0.98"
 clap = { version = "4.5.36", features = ["derive"] }
 crossterm = "0.29.0"
 indoc = "2.0.6"
-regex = "1.11.1"
