@@ -49,8 +49,7 @@ impl Args {
         };
 
         let Some((user, ip)) = self.ssh_addr.split_once("@") else {
-            eprintdoc! {
-                                                                                                                                                                                                                                                    "
+            eprintdoc! {"
         {error} Malformed ssh address '{addr}':
           <user>{at}<ip>
                 ^ separator not found
@@ -194,7 +193,7 @@ pub async fn zellij_attach(ssh_addr: &str) -> Result<()> {
             Command::new("ssh")
                 .arg("-t")
                 .arg(ssh_addr)
-                .arg("zellij --create")
+                .arg("zellij attach --create")
                 .status()?;
             return Ok(());
         } else {
@@ -239,28 +238,29 @@ async fn zellij_list_sessions(ssh_addr: &str) -> Result<(Vec<Zesh>, String)> {
         return Err(anyhow!(err));
     }
 
-    let zs_raw = ssh
+    let zellij_out = ssh
         .command("zellij")
         .arg("ls")
         .arg("-n") // no ansi escapes
         .output()
-        .await?
-        .stdout;
-    let zs_raw = String::from_utf8(zs_raw)?;
+        .await?;
+    let stdout = String::from_utf8(zellij_out.stdout)?;
+    let stderr = String::from_utf8(zellij_out.stderr)?;
+    println!("{stderr}");
 
-    if zs_raw.is_empty() {
+    if stderr.contains("No active zellij sessions found.") {
+        return Ok((vec![], stdout));
+    }
+
+    if stdout.is_empty() {
         let err = "Command `zellij ls` failed on remote. Aborting.";
         eprintln!("{err}");
         return Err(anyhow!(err));
     }
 
-    if zs_raw.contains("No active zellij sessions found.") {
-        return Ok((vec![], zs_raw));
-    }
+    let zs = stdout.trim().split('\n').flat_map(Zesh::try_from).collect();
 
-    let zs = zs_raw.trim().split('\n').flat_map(Zesh::try_from).collect();
-
-    let zs_raw = zs_raw
+    let zs_raw = stdout
         .lines()
         .enumerate()
         .fold(String::new(), |mut output, (i, l)| {
