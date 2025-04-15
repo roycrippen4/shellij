@@ -507,6 +507,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45bb67a18fa91266cc7807181f62f9178a6873bfad7dc788c42e6430db40184f"
 
 [[package]]
+name = "shellij"
+version = "0.0.1"
+dependencies = [
+ "ansi_term",
+ "anyhow",
+ "clap",
+ "crossterm",
+ "indoc",
+ "openssh",
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -550,20 +564,6 @@ checksum = "4f5fd57c80058a56cf5c777ab8a126398ece8e442983605d280a44ce79d0edef"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "ssh_zellij"
-version = "0.0.1"
-dependencies = [
- "ansi_term",
- "anyhow",
- "clap",
- "crossterm",
- "indoc",
- "openssh",
- "regex",
- "tokio",
 ]
 
 [[package]]

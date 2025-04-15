@@ -182,7 +182,7 @@ fn fzf(zs: Vec<Zesh>, zs_raw: String) -> Result<Zesh> {
 }
 
 /// Attaches to a remote zellij session over ssh
-pub async fn zellij_attach(ssh_addr: &str) -> Result<()> {
+pub async fn shellij(ssh_addr: &str) -> Result<()> {
     let (zs, zs_raw) = zellij_list_sessions(ssh_addr).await?;
 
     if zs.is_empty() {
