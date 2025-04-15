@@ -2,6 +2,20 @@
 name = "shellij"
 version = "0.0.1"
 edition = "2024"
+license-file = "LICENSE"
+description = "Simplify using Zellij over SSH."
+repository = "https://github.com/roycrippen4/shellij"
+readme = "README.md"
+keywords = ["zellij", "ssh", "cli"]
+categories = [
+  "command-line-utilities",
+  "development-tools",
+  "network-programming",
+  "security",
+]
+
+[lib]
+bench = false
 
 [dependencies]
 ansi_term = "0.12.1"

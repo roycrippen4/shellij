@@ -1,6 +1,6 @@
 # What is Shellij?
 Shellij is a thin wrapper around the popluar terminal multiplexer [zellij](https://github.com/zellij-org/zellij).
-Shellij aims to simplify the experience of using Zellij over SSH.
+Simplify using Zellij over SSH.
 
 # Dependencies
 
